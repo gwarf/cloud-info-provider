@@ -1,113 +1,117 @@
 import logging
 
+import functools
 import re
-import requests
 import socket
 
 from cloud_info import exceptions
 from cloud_info import providers
 from cloud_info import utils
 
-from OpenSSL import SSL
+import keystoneauth1.exceptions.http
+from six.moves.urllib.parse import urljoin
 from six.moves.urllib.parse import urlparse
 
-from novaclient.exceptions import Forbidden
+try:
+    import requests
+except ImportError:
+    msg = 'Cannot import requests module.'
+    raise exceptions.OpenStackProviderException(msg)
+
+try:
+    import glanceclient
+except ImportError:
+    msg = 'Cannot import glanceclient module.'
+    raise exceptions.OpenStackProviderException(msg)
+
+try:
+    import novaclient.client
+    from novaclient.exceptions import Forbidden
+except ImportError:
+    msg = 'Cannot import novaclient module.'
+    raise exceptions.OpenStackProviderException(msg)
+
+try:
+    from keystoneauth1 import loading
+    from keystoneauth1.loading import base as loading_base
+except ImportError:
+    msg = 'Cannot import keystoneauth module.'
+    raise exceptions.OpenStackProviderException(msg)
+
+try:
+    from OpenSSL import SSL
+except ImportError:
+    msg = 'Cannot import pyOpenSSL module.'
+    raise exceptions.OpenStackProviderException(msg)
+
+# Remove info log messages from output
+logging.getLogger('stevedore.extension').setLevel(logging.WARNING)
+logging.getLogger('requests').setLevel(logging.WARNING)
+logging.getLogger('urllib3').setLevel(logging.WARNING)
+logging.getLogger('novaclient').setLevel(logging.WARNING)
+logging.getLogger('keystoneauth').setLevel(logging.WARNING)
+logging.getLogger('keystoneclient').setLevel(logging.WARNING)
+
+
+def _rescope(f):
+    @functools.wraps(f)
+    def inner(self, os_project_name=None, **kwargs):
+        if (not self.os_tenant_id or
+                os_project_name != self.auth_plugin.project_name):
+            self.auth_plugin.project_name = os_project_name
+            self.auth_plugin.invalidate()
+            try:
+                self.os_tenant_id = self.session.get_project_id()
+            except keystoneauth1.exceptions.http.Unauthorized:
+                msg = ("Could not authorize user in project '%s'" %
+                       os_project_name)
+                raise exceptions.OpenStackProviderException(msg)
+        return f(self, project_name=os_project_name, **kwargs)
+    return inner
 
 
 class OpenStackProvider(providers.BaseProvider):
     def __init__(self, opts):
         super(OpenStackProvider, self).__init__(opts)
 
-        try:
-            import novaclient.client
-        except ImportError:
-            msg = 'Cannot import novaclient module.'
-            raise exceptions.OpenStackProviderException(msg)
+        # NOTE(aloga): we do not want a project to be passed from the CLI,
+        # as we will iterate over it for each configured VO and project.  We
+        # have not added these arguments to the parser, but, since the plugin
+        # is expecting them when parsing the arguments we need to set them to
+        # None before calling the load_auth_from_argparse_arguments. However,
+        # we may receive this in the "opts" namespace, therefore we do not set
+        # it this is passed.
+        if "os_project_name" not in opts:
+            opts.os_project_name = None
+        if "os_project_id" not in opts:
+            opts.os_project_id = None
 
-        try:
-            import keystoneclient.v2_0.client as ksclient
-        except ImportError:
-            msg = 'Cannot import keystoneclient module.'
-            raise exceptions.OpenStackProviderException(msg)
+        self.auth_plugin = loading.load_auth_from_argparse_arguments(opts)
 
-        # Remove info log messages from output
-        logging.getLogger('requests').setLevel(logging.WARNING)
-        logging.getLogger('urllib3').setLevel(logging.WARNING)
-        logging.getLogger('novaclient.client').setLevel(logging.WARNING)
-        logging.getLogger('keystoneclient').setLevel(logging.WARNING)
+        self.session = loading.load_session_from_argparse_arguments(
+            opts, auth=self.auth_plugin
+        )
 
-        (os_username, os_password, os_tenant_name, os_auth_url,
-         cacert, insecure, legacy_occi_os) = (opts.os_username,
-                                              opts.os_password,
-                                              opts.os_tenant_name,
-                                              opts.os_auth_url,
-                                              opts.os_cacert,
-                                              opts.insecure,
-                                              opts.legacy_occi_os)
-
-        if not os_username:
-            msg = ('ERROR, You must provide a username '
-                   'via either --os-username or env[OS_USERNAME]')
-            raise exceptions.OpenStackProviderException(msg)
-
-        if not os_password:
-            msg = ('ERROR, You must provide a password '
-                   'via either --os-password or env[OS_PASSWORD]')
-            raise exceptions.OpenStackProviderException(msg)
-
-        if not os_tenant_name:
-            msg = ('You must provide a tenant name '
-                   'via either --os-tenant-name or env[OS_TENANT_NAME]')
-            raise exceptions.OpenStackProviderException(msg)
-
-        if not os_auth_url:
-            msg = ('You must provide an auth url '
-                   'via either --os-auth-url or env[OS_AUTH_URL] ')
-            raise exceptions.OpenStackProviderException(msg)
+        self.os_tenant_id = None
 
         # Hide urllib3 warnings when allowing unverified connection
-        if insecure:
+        if opts.insecure:
             requests.packages.urllib3.disable_warnings()
 
-        client_cls = novaclient.client.Client
-        if insecure:
-            self.api = client_cls(2,
-                                  os_username,
-                                  os_password,
-                                  os_tenant_name,
-                                  auth_url=os_auth_url,
-                                  insecure=insecure)
-        else:
-            self.api = client_cls(2,
-                                  os_username,
-                                  os_password,
-                                  os_tenant_name,
-                                  auth_url=os_auth_url,
-                                  insecure=insecure,
-                                  cacert=cacert)
+        self.nova = novaclient.client.Client(2, session=self.session)
+        self.glance = glanceclient.Client('2', session=self.session)
 
-        self.api.authenticate()
         self.static = providers.static.StaticProvider(opts)
-        self.legacy_occi_os = legacy_occi_os
-        self.insecure = insecure
-        self.os_cacert = cacert
-        self.os_tenant_name = os_tenant_name
-
-        # Retrieve a keystone authentication token
-        # XXX to be used as main authentication mean
-        self.keystone = ksclient.Client(auth_url=os_auth_url,
-                                        username=os_username,
-                                        password=os_password,
-                                        tenant_name=os_tenant_name,
-                                        insecure=insecure)
-        self.auth_token = self.keystone.auth_token
-        self.os_tenant_id = self.keystone.get_project_id(os_tenant_name)
+        self.legacy_occi_os = opts.legacy_occi_os
+        self.insecure = opts.insecure
 
         # Retieve information about Keystone endpoint SSL configuration
-        e_cert_info = self._get_endpoint_ca_information(os_auth_url, insecure,
-                                                        cacert)
+        e_cert_info = self._get_endpoint_ca_information(opts.os_auth_url,
+                                                        opts.insecure,
+                                                        opts.os_cacert)
         self.keystone_cert_issuer = e_cert_info['issuer']
         self.keystone_trusted_cas = e_cert_info['trusted_cas']
+        self.os_cacert = opts.os_cacert
 
     def _get_endpoint_versions(self, endpoint_url, endpoint_type):
         '''Return the API and middleware versions of a compute endpoint.'''
@@ -126,13 +130,17 @@ class OpenStackProvider(providers.BaseProvider):
 
         if endpoint_type == 'occi':
             try:
-                headers = {'X-Auth-token': self.auth_token}
-                request_url = "%s/-/" % endpoint_url
                 if self.insecure:
                     verify = False
                 else:
                     verify = self.os_cacert
-                r = requests.get(request_url, headers=headers, verify=verify)
+
+                request_url = "%s/-/" % endpoint_url
+
+                r = self.session.get(request_url,
+                                     authenticated=True,
+                                     verify=verify)
+
                 if r.status_code == requests.codes.ok:
                     header_server = r.headers['Server']
                     e_middleware_version = re.search(r'ooi/([0-9.]+)',
@@ -190,12 +198,6 @@ class OpenStackProvider(providers.BaseProvider):
                 cert = client_ssl.get_peer_certificate()
                 issuer = self._get_dn(cert.get_issuer())
 
-                # XXX Do we want the root issuer cert?
-                # XXX Validate if top-most cert is the last one
-                # cert_chain = client_ssl.get_peer_cert_chain()
-                # last_cert = cert_chain[-1]
-                # issuer = last_cert.get_issuer().commonName
-
                 client_ca_list = client_ssl.get_client_ca_list()
                 trusted_cas = [self._get_dn(ca) for ca in client_ca_list]
 
@@ -220,7 +222,8 @@ class OpenStackProvider(providers.BaseProvider):
 
         return obj_name[start:end]
 
-    def get_compute_endpoints(self):
+    @_rescope
+    def get_compute_endpoints(self, os_project_name=None, **kwargs):
         # Hard-coded defaults for supported endpoints types
         supported_endpoints = {
             'occi': {
@@ -237,41 +240,39 @@ class OpenStackProvider(providers.BaseProvider):
 
         ret = {
             'endpoints': {},
-            'compute_service_name': self.api.client.auth_url,
+            'compute_service_name': self.auth_plugin.auth_url
         }
 
         defaults = self.static.get_compute_endpoint_defaults(prefix=True)
-        catalog = self.api.client.service_catalog.catalog
+        catalog = self.auth_plugin.get_access(self.session).service_catalog
+        for e_type, e_data in supported_endpoints.items():
+            epts = catalog.get_endpoints(service_type=e_type,
+                                         interface="public")
+            for ept in epts[e_type]:
+                e_id = ept['id']
+                e_url = ept['url']
+                # Use keystone SSL information
+                e_issuer = self.keystone_cert_issuer
+                e_cas = self.keystone_trusted_cas
+                e_versions = self._get_endpoint_versions(e_url, e_type)
+                e_mw_version = e_versions['compute_middleware_version']
+                e_api_version = e_versions['compute_api_version']
 
-        endpoints = catalog['access']['serviceCatalog']
-        for endpoint in endpoints:
-            e_type = endpoint['type']
-            if e_type in supported_endpoints:
-                for ept in endpoint['endpoints']:
-                    e_id = ept['id']
-                    e_url = ept['publicURL']
-                    # Use keystone SSL information
-                    e_issuer = self.keystone_cert_issuer
-                    e_cas = self.keystone_trusted_cas
-                    e_versions = self._get_endpoint_versions(e_url, e_type)
-                    e_mw_version = e_versions['compute_middleware_version']
-                    e_api_version = e_versions['compute_api_version']
+                e = defaults.copy()
+                e.update(e_data)
+                e.update({
+                    'compute_endpoint_url': e_url,
+                    'endpoint_issuer': e_issuer,
+                    'endpoint_trusted_cas': e_cas,
+                    'compute_middleware_version': e_mw_version,
+                    'compute_api_version': e_api_version,
+                })
 
-                    e = defaults.copy()
-                    e.update(supported_endpoints[e_type])
-                    e.update({
-                        'compute_endpoint_url': e_url,
-                        'endpoint_issuer': e_issuer,
-                        'endpoint_trusted_cas': e_cas,
-                        'compute_middleware_version': e_mw_version,
-                        'compute_api_version': e_api_version,
-                        })
-
-                    ret['endpoints'][e_id] = e
-
+                ret['endpoints'][e_id] = e
         return ret
 
-    def get_templates(self):
+    @_rescope
+    def get_templates(self, os_project_name=None, **kwargs):
         flavors = {}
 
         defaults = {'template_platform': 'amd64',
@@ -280,7 +281,7 @@ class OpenStackProvider(providers.BaseProvider):
         tpl_sch = defaults.get('template_schema', 'resource')
         flavor_id_attr = 'name' if self.legacy_occi_os else 'id'
         URI = 'http://schemas.openstack.org/template/'
-        for flavor in self.api.flavors.list(detailed=True):
+        for flavor in self.nova.flavors.list(detailed=True):
             if not flavor.is_public:
                 continue
 
@@ -297,7 +298,8 @@ class OpenStackProvider(providers.BaseProvider):
             flavors[flavor.id] = aux
         return flavors
 
-    def get_images(self):
+    @_rescope
+    def get_images(self, os_project_name=None, **kwargs):
         images = {}
 
         # image_native_id: middleware image ID
@@ -331,53 +333,40 @@ class OpenStackProvider(providers.BaseProvider):
         img_sch = defaults.get('image_schema', 'os')
         URI = 'http://schemas.openstack.org/template/'
 
-        for image in self.api.images.list(detailed=True):
+        for image in self.glance.images.list(detailed=True):
             aux_img = template.copy()
             aux_img.update(defaults)
-            link = None
-            for link in image.links:
-                # TODO(aloga): Check if this is the needed parameter
-                if link.get('type',
-                            None) == 'application/vnd.openstack.image':
-                    link = link['href']
-                    break
 
             # XXX Create an entry for each metatdata attribute, no filtering
-            for name, value in image.metadata.items():
+            for name, value in image.items():
                 aux_img[name] = value
 
+            img_name = image.get("name")
+            img_id = image.get("id")
             aux_img.update({
-                'image_name': image.name,
-                'image_native_id': image.id,
+                'image_name': img_name,
+                'image_native_id': img_id,
                 'image_id': '%s%s#%s' % (URI, img_sch,
-                                         OpenStackProvider.occify(image.id))
+                                         OpenStackProvider.occify(img_id))
             })
 
-            image_descr = None
-            if image.metadata.get('vmcatcher_event_dc_description',
-                                  None) is not None:
-                image_descr = image.metadata['vmcatcher_event_dc_description']
-            elif 'vmcatcher_event_dc_title' in image.metadata:
-                image_descr = image.metadata['vmcatcher_event_dc_title']
+            image_descr = (image.get('vmcatcher_event_dc_description') or
+                           image.get('vmcatcher_event_dc_title'))
 
-            marketplace_id = None
-            if image.metadata.get('vmcatcher_event_ad_mpuri',
-                                  None) is not None:
-                marketplace_id = image.metadata['vmcatcher_event_ad_mpuri']
-            elif 'marketplace' in image.metadata:
-                marketplace_id = image.metadata['marketplace']
-            elif not defaults.get('image_require_marketplace_id', False):
-                marketplace_id = link
-            else:
-                continue
+            marketplace_id = (image.get('vmcatcher_event_ad_mpuri') or
+                              image.get('marketplace'))
 
-            distro = None
-            if image.metadata.get('os_distro', None) is not None:
-                distro = image.metadata['os_distro']
+            if marketplace_id is None:
+                if not defaults.get('image_require_marketplace_id'):
+                    link = urljoin(self.glance.http_client.get_endpoint(),
+                                   image.get("file"))
+                    marketplace_id = link
+                else:
+                    continue
 
-            distro_version = None
-            if image.metadata.get('os_version', None) is not None:
-                distro_version = image.metadata['os_version']
+            distro = image.get('os_distro')
+            distro_version = image.get('os_version')
+            image_version = image.get('image_version')
 
             if marketplace_id:
                 aux_img['image_marketplace_id'] = marketplace_id
@@ -387,21 +376,14 @@ class OpenStackProvider(providers.BaseProvider):
                 aux_img['image_os_name'] = distro
             if distro_version:
                 aux_img['image_os_version'] = distro_version
-            if image.metadata.get('image_version', None) is not None:
-                image_version = image.metadata['image_version']
-            else:
-                if (image.metadata.get('distro', None) is not None) and (
-                        image.metadata.get(distro_version) is not None):
-                    image_version = str(distro) + ' ' + str(distro_version)
-                else:
-                    image_version = None
             if image_version:
                 aux_img['image_version'] = image_version
 
-            images[image.id] = aux_img
+            images[img_id] = aux_img
         return images
 
-    def get_instances(self):
+    @_rescope
+    def get_instances(self, os_project_name=None, **kwargs):
         instance_template = {
             'instance_name': None,
             'instance_image_id': None,
@@ -411,7 +393,7 @@ class OpenStackProvider(providers.BaseProvider):
 
         instances = {}
 
-        for instance in self.api.servers.list():
+        for instance in self.nova.servers.list():
             ret = instance_template.copy()
             ret.update({
                 'instance_name': instance.name,
@@ -423,7 +405,8 @@ class OpenStackProvider(providers.BaseProvider):
 
         return instances
 
-    def get_compute_quotas(self):
+    @_rescope
+    def get_compute_quotas(self, os_project_name=None, **kwargs):
         '''Return the quotas set for the current project.'''
 
         quota_resources = ['instances', 'cores', 'ram',
@@ -437,7 +420,7 @@ class OpenStackProvider(providers.BaseProvider):
         quotas = defaults.copy()
 
         try:
-            project_quotas = self.api.quotas.get(self.os_tenant_id)
+            project_quotas = self.nova.quotas.get(self.os_tenant_id)
             for resource in quota_resources:
                 try:
                     quotas[resource] = getattr(project_quotas, resource)
@@ -458,37 +441,29 @@ class OpenStackProvider(providers.BaseProvider):
 
     @staticmethod
     def populate_parser(parser):
-        parser.add_argument(
-            '--os-username',
-            metavar='<auth-user-name>',
-            default=utils.env('OS_USERNAME', 'NOVA_USERNAME'),
-            help='Defaults to env[OS_USERNAME].')
+        default_auth = "v3password"
+        parser.add_argument('--os-auth-type',
+                            '--os-auth-plugin',
+                            metavar='<name>',
+                            default=default_auth,
+                            help='Authentication type to use')
 
-        parser.add_argument(
-            '--os-password',
-            metavar='<auth-password>',
-            default=utils.env('OS_PASSWORD', 'NOVA_PASSWORD'),
-            help='Defaults to env[OS_PASSWORD].')
+        plugin = loading_base.get_plugin_loader(default_auth)
 
-        parser.add_argument(
-            '--os-tenant-name',
-            metavar='<auth-tenant-name>',
-            default=utils.env('OS_TENANT_NAME', 'NOVA_PROJECT_ID'),
-            help='Defaults to env[OS_TENANT_NAME].')
-
-        parser.add_argument(
-            '--os-auth-url',
-            metavar='<auth-url>',
-            default=utils.env('OS_AUTH_URL', 'NOVA_URL'),
-            help='Defaults to env[OS_AUTH_URL].')
-
-        parser.add_argument(
-            '--os-cacert',
-            metavar='<ca-certificate>',
-            default=utils.env('OS_CACERT', default=None),
-            help='Specify a CA bundle file to use in '
-                 'verifying a TLS (https) server certificate. '
-                 'Defaults to env[OS_CACERT]')
+        for opt in plugin.get_options():
+            # NOTE(aloga): we do not want a project to be passed from the CLI,
+            # as we will iterate over it for each configured VO and project.
+            # However, as the plugin is expecting them when parsing the
+            # arguments we need to set them to None before calling the
+            # load_auth_from_argparse_arguments method in the __init__ method
+            # of this class.
+            if opt.name in ("project-name", "project-id"):
+                continue
+            parser.add_argument(*opt.argparse_args,
+                                default=opt.argparse_default,
+                                metavar=opt.metavar,
+                                help=opt.help,
+                                dest='os_%s' % opt.dest)
 
         parser.add_argument(
             '--insecure',
@@ -498,6 +473,32 @@ class OpenStackProvider(providers.BaseProvider):
                  "SSL (https) requests. The server's certificate will "
                  'not be verified against any certificate authorities. '
                  'This option should be used with caution.')
+
+        parser.add_argument(
+            '--os-cacert',
+            metavar='<ca-certificate>',
+            default=utils.env('OS_CACERT', default=requests.certs.where()),
+            help='Specify a CA bundle file to use in '
+            'verifying a TLS (https) server certificate. '
+            'Defaults to env[OS_CACERT].')
+
+        parser.add_argument(
+            '--os-cert',
+            metavar='<certificate>',
+            default=utils.env('OS_CERT', default=None),
+            help='Defaults to env[OS_CERT].')
+
+        parser.add_argument(
+            '--os-key',
+            metavar='<key>',
+            default=utils.env('OS_KEY', default=None),
+            help='Defaults to env[OS_KEY].')
+
+        parser.add_argument(
+            '--timeout',
+            default=600,
+            metavar='<seconds>',
+            help='Set request timeout (in seconds).')
 
         parser.add_argument(
             '--legacy-occi-os',

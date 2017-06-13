@@ -8,3 +8,5 @@ defusedxml
 #pyOpenSSL
 #python-keystoneclient
 #python-novaclient
+#python-glanceclient
+#keystoneauth1

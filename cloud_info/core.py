@@ -1,18 +1,18 @@
 import argparse
 import os.path
 
-import cloud_info.providers.opennebula
-import cloud_info.providers.openstack
-import cloud_info.providers.static
+from cloud_info import exceptions
+from cloud_info import importutils
 
 import mako.template
 
 SUPPORTED_MIDDLEWARE = {
-    'openstack': cloud_info.providers.openstack.OpenStackProvider,
-    'opennebula': cloud_info.providers.opennebula.OpenNebulaProvider,
-    'indigoon': cloud_info.providers.opennebula.IndigoONProvider,
-    'opennebularocci': cloud_info.providers.opennebula.OpenNebulaROCCIProvider,
-    'static': cloud_info.providers.static.StaticProvider,
+    'openstack': 'cloud_info.providers.openstack.OpenStackProvider',
+    'opennebula': 'cloud_info.providers.opennebula.OpenNebulaProvider',
+    'indigoon': 'cloud_info.providers.opennebula.IndigoONProvider',
+    'opennebularocci': 'cloud_info.providers.opennebula.'
+                       'OpenNebulaROCCIProvider',
+    'static': 'cloud_info.providers.static.StaticProvider',
 }
 
 
@@ -25,11 +25,17 @@ class BaseBDII(object):
 
         if (opts.middleware != 'static' and
                 opts.middleware in SUPPORTED_MIDDLEWARE):
-            self.dynamic_provider = SUPPORTED_MIDDLEWARE[opts.middleware](opts)
+            provider_cls = importutils.import_class(
+                SUPPORTED_MIDDLEWARE[opts.middleware]
+            )
+            self.dynamic_provider = provider_cls(opts)
         else:
             self.dynamic_provider = None
 
-        self.static_provider = SUPPORTED_MIDDLEWARE['static'](opts)
+        provider_cls = importutils.import_class(
+            SUPPORTED_MIDDLEWARE['static']
+        )
+        self.static_provider = provider_cls(opts)
 
     def load_templates(self):
         self.templates_files = {}
@@ -39,23 +45,12 @@ class BaseBDII(object):
                                          '%s.%s' % (tpl, template_extension))
             self.templates_files[tpl] = template_file
 
-    def _get_info_from_providers(self, method, provider_opts=None):
-        # XXX Temporarily update dynamic provider parameters
-        # XXX Required to be able to pass a custom project to the provider
-        # XXX to retrieve project-specific templates and images
-        if provider_opts:
-            opts = self.opts
-            d = vars(opts)
-            for k, v in provider_opts.items():
-                d[k] = v
-
-            self.dynamic_provider = SUPPORTED_MIDDLEWARE[opts.middleware](opts)
-
+    def _get_info_from_providers(self, method, **provider_kwargs):
         info = {}
         for i in (self.static_provider, self.dynamic_provider):
             if not i:
                 continue
-            result = getattr(i, method)()
+            result = getattr(i, method)(**provider_kwargs)
             info.update(result)
         return info
 
@@ -114,8 +109,7 @@ class ComputeBDII(BaseBDII):
             project = share['project']
 
             endpoints = self._get_info_from_providers('get_compute_endpoints',
-                                                      {'os_tenant_name':
-                                                          project})
+                                                      os_project_name=project)
 
             if not endpoints.get('endpoints'):
                 return ''
@@ -129,19 +123,16 @@ class ComputeBDII(BaseBDII):
                 endpoint.update(static_compute_info)
 
             images = self._get_info_from_providers('get_images',
-                                                   {'os_tenant_name': project})
+                                                   os_project_name=project)
 
             templates = self._get_info_from_providers('get_templates',
-                                                      {'os_tenant_name':
-                                                          project})
+                                                      os_project_name=project)
 
             instances = self._get_info_from_providers('get_instances',
-                                                      {'os_tenant_name':
-                                                          project})
+                                                      os_project_name=project)
 
             quotas = self._get_info_from_providers('get_compute_quotas',
-                                                   {'os_tenant_name':
-                                                       project})
+                                                   os_project_name=project)
 
             for template_id, template in templates.items():
                 template.update(static_compute_info)
@@ -243,7 +234,17 @@ def parse_opts():
     for provider_name, provider in SUPPORTED_MIDDLEWARE.items():
         group = parser.add_argument_group('%s provider options' %
                                           provider_name)
-        provider.populate_parser(group)
+
+        # NOTE(aloga): importing the class may fail because of missing
+        # dependencies, so we skip those options. This is not the best option,
+        # as those options will not be present until the dependencies are
+        # satisfied...
+        try:
+            provider = importutils.import_class(provider)
+            provider.populate_parser(group)
+        except (exceptions.OpenStackProviderException,
+                exceptions.OpenNebulaProviderException):
+            pass
 
     return parser.parse_args()
 

@@ -6,20 +6,20 @@ from cloud_info import exceptions
 from cloud_info import providers
 from cloud_info import utils
 
+try:
+    import defusedxml.ElementTree
+    from defusedxml import xmlrpc
+    from six.moves import xmlrpc_client as xmlrpclib  # nosec
+    # Protect the XMLRPC parser from various XML-based threats
+    xmlrpc.monkey_patch()
+except ImportError:
+    msg = 'Cannot import defusedxml ElementTree and/or xmlrpc.'
+    raise exceptions.OpenNebulaProviderException(msg)
+
 
 class OpenNebulaBaseProvider(providers.BaseProvider):
     def __init__(self, opts):
         super(OpenNebulaBaseProvider, self).__init__(opts)
-
-        try:
-            import defusedxml.ElementTree
-            from defusedxml import xmlrpc
-            import xmlrpclib  # nosec
-            # Protect the XMLRPC parser from various XML-based threats
-            xmlrpc.monkey_patch()
-        except ImportError:
-            msg = 'Cannot import defusedxml ElementTree and/or xmlrpc.'
-            raise exceptions.OpenNebulaProviderException(msg)
 
         self.opts = opts
         self.on_auth = opts.on_auth
@@ -69,7 +69,7 @@ class OpenNebulaBaseProvider(providers.BaseProvider):
             self.on_auth, -2, -1, -1)
         return self._handle_response(response)
 
-    def get_images(self):
+    def get_images(self, **kwargs):
         template = {
             'image_name': None,
             'image_description': None,
@@ -169,7 +169,7 @@ class IndigoONProvider(OpenNebulaBaseProvider):
     def __init__(self, opts):
         super(IndigoONProvider, self).__init__(opts)
 
-    def get_templates(self):
+    def get_templates(self, **kwargs):
         template = {
             'template_id': None,
             'template_name': None,
@@ -209,7 +209,7 @@ class IndigoONProvider(OpenNebulaBaseProvider):
             templates[tpl_id] = aux_tpl
         return templates
 
-    def get_images(self):
+    def get_images(self, **kwargs):
         image = {
             'image_name': None,
             'image_id': None,
@@ -256,7 +256,7 @@ class OpenNebulaROCCIProvider(OpenNebulaBaseProvider):
             raise exceptions.OpenNebulaProviderException(msg)
         super(OpenNebulaROCCIProvider, self).__init__(opts)
 
-    def get_templates(self):
+    def get_templates(self, **kwargs):
         """Get flavors from rOCCI-server configuration."""
         template = {
             'template_id': None,
