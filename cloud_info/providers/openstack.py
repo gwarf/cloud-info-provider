@@ -1,5 +1,6 @@
 import logging
 
+import functools
 import re
 import socket
 
@@ -52,6 +53,23 @@ logging.getLogger('keystoneauth').setLevel(logging.WARNING)
 logging.getLogger('keystoneclient').setLevel(logging.WARNING)
 
 
+def _rescope(f):
+    @functools.wraps(f)
+    def inner(self, os_project_name=None, **kwargs):
+        if (not self.os_tenant_id or
+                os_project_name != self.auth_plugin.project_name):
+            self.auth_plugin.project_name = os_project_name
+            self.auth_plugin.invalidate()
+            try:
+                self.os_tenant_id = self.session.get_project_id()
+            except keystoneauth1.exceptions.http.Unauthorized:
+                msg = ("Could not authorize user in project '%s'" %
+                       os_project_name)
+                raise exceptions.OpenStackProviderException(msg)
+        return f(self, os_project_name=os_project_name, **kwargs)
+    return inner
+
+
 class OpenStackProvider(providers.BaseProvider):
     def __init__(self, opts):
         super(OpenStackProvider, self).__init__(opts)
@@ -76,19 +94,14 @@ class OpenStackProvider(providers.BaseProvider):
             opts, auth=self.auth_plugin
         )
 
+        self.os_tenant_id = None
+
         # Hide urllib3 warnings when allowing unverified connection
         if opts.insecure:
             requests.packages.urllib3.disable_warnings()
 
         self.nova = novaclient.client.Client(2, session=self.session)
         self.glance = glanceclient.Client('2', session=self.session)
-
-        try:
-            self.os_tenant_id = self.session.get_project_id()
-        except keystoneauth1.exceptions.http.Unauthorized:
-            msg = ("Could not authorize user in project '%s'" %
-                   opts.os_project_name)
-            raise exceptions.OpenStackProviderException(msg)
 
         self.static = providers.static.StaticProvider(opts)
         self.legacy_occi_os = opts.legacy_occi_os
@@ -211,7 +224,8 @@ class OpenStackProvider(providers.BaseProvider):
 
         return obj_name[start:end]
 
-    def get_compute_endpoints(self, **kwargs):
+    @_rescope
+    def get_compute_endpoints(self, os_project_name=None, **kwargs):
         # Hard-coded defaults for supported endpoints types
         supported_endpoints = {
             'occi': {
@@ -259,7 +273,8 @@ class OpenStackProvider(providers.BaseProvider):
                 ret['endpoints'][e_id] = e
         return ret
 
-    def get_templates(self, **kwargs):
+    @_rescope
+    def get_templates(self, os_project_name=None, **kwargs):
         flavors = {}
 
         defaults = {'template_platform': 'amd64',
@@ -285,7 +300,8 @@ class OpenStackProvider(providers.BaseProvider):
             flavors[flavor.id] = aux
         return flavors
 
-    def get_images(self, **kwargs):
+    @_rescope
+    def get_images(self, os_project_name=None, **kwargs):
         images = {}
 
         # image_native_id: middleware image ID
@@ -368,7 +384,8 @@ class OpenStackProvider(providers.BaseProvider):
             images[img_id] = aux_img
         return images
 
-    def get_instances(self, **kwargs):
+    @_rescope
+    def get_instances(self, os_project_name=None, **kwargs):
         instance_template = {
             'instance_name': None,
             'instance_image_id': None,
@@ -390,7 +407,8 @@ class OpenStackProvider(providers.BaseProvider):
 
         return instances
 
-    def get_compute_quotas(self, **kwargs):
+    @_rescope
+    def get_compute_quotas(self, os_project_name=None, **kwargs):
         '''Return the quotas set for the current project.'''
 
         quota_resources = ['instances', 'cores', 'ram',
