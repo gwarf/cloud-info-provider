@@ -69,7 +69,7 @@ class OpenNebulaBaseProvider(providers.BaseProvider):
             self.on_auth, -2, -1, -1)
         return self._handle_response(response)
 
-    def get_images(self):
+    def get_images(self, **kwargs):
         template = {
             'image_name': None,
             'image_description': None,
@@ -169,7 +169,7 @@ class IndigoONProvider(OpenNebulaBaseProvider):
     def __init__(self, opts):
         super(IndigoONProvider, self).__init__(opts)
 
-    def get_templates(self):
+    def get_templates(self, **kwargs):
         template = {
             'template_id': None,
             'template_name': None,
@@ -209,7 +209,7 @@ class IndigoONProvider(OpenNebulaBaseProvider):
             templates[tpl_id] = aux_tpl
         return templates
 
-    def get_images(self):
+    def get_images(self, **kwargs):
         image = {
             'image_name': None,
             'image_id': None,
@@ -256,7 +256,7 @@ class OpenNebulaROCCIProvider(OpenNebulaBaseProvider):
             raise exceptions.OpenNebulaProviderException(msg)
         super(OpenNebulaROCCIProvider, self).__init__(opts)
 
-    def get_templates(self):
+    def get_templates(self, **kwargs):
         """Get flavors from rOCCI-server configuration."""
         template = {
             'template_id': None,
