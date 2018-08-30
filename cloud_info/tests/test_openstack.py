@@ -60,8 +60,9 @@ class OpenStackProviderTest(base.TestCase):
                 self.keystone_trusted_cas = []
                 self.insecure = False
                 self.os_cacert = '/etc/ssl/cas'
-                self.os_tenant_id = None
+                self.os_project_id = None
                 self.select_flavors = 'all'
+                self._rescope_project = mock.Mock()
 
         self.provider = FakeProvider(None)
 
