@@ -267,11 +267,14 @@ class OpenStackProvider(providers.BaseProvider):
             for ept in epts[e_type]:
                 # XXX for one ID there is one enpoint URL per project
                 e_id = ept['id']
-                e_url = ept['url']
+                if e_type == 'occi':
+                    e_url = ept['url']
+                else:
+                    e_url = self.auth_plugin.auth_url
                 # Use keystone SSL information
                 e_issuer = self.keystone_cert_issuer
                 e_cas = self.keystone_trusted_cas
-                e_versions = self._get_endpoint_versions(e_url, e_type)
+                e_versions = self._get_endpoint_versions(ept['url'], e_type)
                 e_mw_version = e_versions['compute_middleware_version']
                 e_api_version = e_versions['compute_api_version']
                 # Fallback on defaults if nothing was found
