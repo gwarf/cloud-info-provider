@@ -14,7 +14,7 @@ FAKES = data.OS_FAKES
 
 class OpenStackProviderOptionsTest(base.TestCase):
     def test_populate_parser(self):
-        parser = argparse.ArgumentParser()
+        parser = argparse.ArgumentParser(conflict_handler='resolve')
         provider = os_provider.OpenStackProvider
         provider.populate_parser(parser)
 
