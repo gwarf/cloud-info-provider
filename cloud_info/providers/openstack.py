@@ -145,6 +145,7 @@ class OpenStackProvider(providers.BaseProvider):
 
     def _get_endpoint_versions(self, endpoint_url, endpoint_type):
         '''Return the API and middleware versions of a compute endpoint.
+
            Beware for 'compute' type endpoint, we are using Keystone URL and
            not nova's!
         '''
