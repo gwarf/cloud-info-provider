@@ -4,6 +4,7 @@ import os.path
 from cloud_info import exceptions
 from cloud_info import importutils
 
+import mako.exceptions
 import mako.template
 
 SUPPORTED_MIDDLEWARE = {
@@ -59,7 +60,10 @@ class BaseBDII(object):
         info.update(extra)
         t = self.templates_files[template]
         tpl = mako.template.Template(filename=t)
-        return tpl.render(attributes=info)
+        try:
+            return tpl.render(attributes=info)
+        except:
+            return mako.exceptions.text_error_template().render()
 
 
 class StorageBDII(BaseBDII):
