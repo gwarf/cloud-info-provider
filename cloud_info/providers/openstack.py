@@ -26,6 +26,7 @@ except ImportError:
 try:
     from keystoneauth1 import loading
     from keystoneauth1.loading import base as loading_base
+    from keystoneauth1.loading import session as loading_session
 except ImportError:
     msg = 'Cannot import keystoneauth module.'
     raise exceptions.OpenStackProviderException(msg)
@@ -498,24 +499,20 @@ class OpenStackProvider(providers.BaseProvider):
                             help='Authentication type to use, available '
                                  'types are: %s' % ", ".join(plugins))
 
+        # arguments come from session and plugins
+        loading_session.register_argparse_arguments(parser)
         for plugin_name in plugins:
-
             plugin = loading_base.get_plugin_loader(plugin_name)
-
             for opt in plugin.get_options():
-                # FIXME(aloga): the code below has been commented. This commit has
-                # been cherry picked from another branch that took into account the
-                # VOs and configured projects. The code below needs to be
-                # uncommented whenever Glue2.1 is in place.
-
                 # NOTE(aloga): we do not want a project to be passed from the CLI,
                 # as we will iterate over it for each configured VO and project.
                 # However, as the plugin is expecting them when parsing the
                 # arguments we need to set them to None before calling the
                 # load_auth_from_argparse_arguments method in the __init__ method
                 # of this class.
-                # if opt.name in ("project-name", "project-id"):
-                #    continue
+                if opt.name in ("project-name", "project-id"):
+                    continue
+
                 parser.add_argument(*opt.argparse_args,
                                     default=opt.argparse_default,
                                     metavar='<auth-%s>' % opt.name,
