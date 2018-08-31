@@ -60,8 +60,9 @@ class OpenStackProviderTest(base.TestCase):
                 self.keystone_trusted_cas = []
                 self.insecure = False
                 self.os_cacert = '/etc/ssl/cas'
-                self.os_tenant_id = None
+                self.os_project_id = None
                 self.select_flavors = 'all'
+                self._rescope_project = mock.Mock()
 
         self.provider = FakeProvider(None)
 
@@ -643,13 +644,13 @@ class OpenStackProviderTest(base.TestCase):
                     'compute_api_version': '11.11',
                     'compute_endpoint_id': '03e087c8fb3b495c9a360bcba3abf914',
                     'compute_endpoint_url': 'https://cloud.example.org:8787/'},
-                'https://cloud.example.org:8774/v1.1/ce2d': {
+                'http://foo.example.org:1234/v2': {
                     'compute_api_type': 'OpenStack',
                     # As version is extracted from the URL default is not used
                     'compute_api_version': 'v1.1',
                     'compute_endpoint_id': '1b7f14c87d8c42ad962f4d3a5fd13a77',
                     'compute_endpoint_url':
-                        'https://cloud.example.org:8774/v1.1/ce2d'}
+                        'http://foo.example.org:1234/v2'}
             },
             'compute_middleware_developer': 'OpenStack',
             'compute_middleware': 'OpenStack Nova',
@@ -685,7 +686,7 @@ class OpenStackProviderTest(base.TestCase):
                     'endpoint_trusted_cas': [],
                     'compute_endpoint_id': '03e087c8fb3b495c9a360bcba3abf914',
                     'compute_endpoint_url': 'https://cloud.example.org:8787/'},
-                'https://cloud.example.org:8774/v1.1/ce2d': {
+                'http://foo.example.org:1234/v2': {
                     'compute_api_type': 'OpenStack',
                     'compute_api_version': 'v1.1',
                     'compute_middleware': 'OpenStack Nova',
@@ -695,7 +696,7 @@ class OpenStackProviderTest(base.TestCase):
                     'endpoint_trusted_cas': [],
                     'compute_endpoint_id': '1b7f14c87d8c42ad962f4d3a5fd13a77',
                     'compute_endpoint_url':
-                        'https://cloud.example.org:8774/v1.1/ce2d'}
+                        'http://foo.example.org:1234/v2'}
             },
             'compute_service_name': 'http://foo.example.org:1234/v2',
         }

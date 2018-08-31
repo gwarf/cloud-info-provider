@@ -52,20 +52,12 @@ logging.getLogger('keystoneauth').setLevel(logging.WARNING)
 logging.getLogger('keystoneclient').setLevel(logging.WARNING)
 
 
+# TODO(enolfc): should this be completely inside the provider class?
 def _rescope(f):
     @functools.wraps(f)
-    def inner(self, os_project_name=None, **kwargs):
-        if (not self.os_tenant_id or
-                os_project_name != self.auth_plugin.project_name):
-            self.auth_plugin.project_name = os_project_name
-            self.auth_plugin.invalidate()
-            try:
-                self.os_tenant_id = self.session.get_project_id()
-            except keystoneauth1.exceptions.http.Unauthorized:
-                msg = ("Could not authorize user in project '%s'" %
-                       os_project_name)
-                raise exceptions.OpenStackProviderException(msg)
-        return f(self, project_name=os_project_name, **kwargs)
+    def inner(self, os_project_id=None, **kwargs):
+        self._rescope_project(os_project_id)
+        return f(self, **kwargs)
     return inner
 
 
@@ -87,6 +79,8 @@ class OpenStackProvider(providers.BaseProvider):
             opts.os_project_id = None
             opts.os_tenant_id = None
 
+        # need to keep this to be able to rescope
+        self.opts = opts
         self.auth_plugin = loading.load_auth_from_argparse_arguments(opts)
 
         self.session = loading.load_session_from_argparse_arguments(
@@ -101,10 +95,10 @@ class OpenStackProvider(providers.BaseProvider):
         self.glance = glanceclient.Client('2', session=self.session)
 
         try:
-            self.os_tenant_id = self.session.get_project_id()
+            self.os_project_id = self.session.get_project_id()
         except keystoneauth1.exceptions.http.Unauthorized:
             msg = ("Could not authorize user in project '%s'" %
-                   opts.os_project_name)
+                   opts.os_project_id)
             raise exceptions.OpenStackProviderException(msg)
 
         self.static = providers.static.StaticProvider(opts)
@@ -120,6 +114,27 @@ class OpenStackProvider(providers.BaseProvider):
         self.os_cacert = opts.os_cacert
         # Select 'public', 'private' or 'all' (default) templates.
         self.select_flavors = opts.select_flavors
+
+    def _rescope_project(self, os_project_id):
+        if (not self.os_project_id or
+                os_project_id != self.os_project_id):
+            self.opts.os_project_id = os_project_id
+            self.auth_plugin = loading.load_auth_from_argparse_arguments(
+                self.opts
+            )
+            self.session = loading.load_session_from_argparse_arguments(
+                self.opts, auth=self.auth_plugin
+            )
+            self.auth_plugin.invalidate()
+            try:
+                self.os_project_id = self.session.get_project_id()
+            except keystoneauth1.exceptions.http.Unauthorized:
+                msg = ("Could not authorize user in project '%s'" %
+                       os_project_id)
+                raise exceptions.OpenStackProviderException(msg)
+            # make sure the clients know about the change
+            self.nova = novaclient.client.Client(2, session=self.session)
+            self.glance = glanceclient.Client('2', session=self.session)
 
     def _get_endpoint_versions(self, endpoint_url, endpoint_type):
         '''Return the API and middleware versions of a compute endpoint.'''
@@ -224,7 +239,7 @@ class OpenStackProvider(providers.BaseProvider):
         return obj_name[start:end]
 
     @_rescope
-    def get_compute_endpoints(self, os_project_name=None, **kwargs):
+    def get_compute_endpoints(self, **kwargs):
         # Hard-coded defaults for supported endpoints types
         supported_endpoints = {
             'occi': {
@@ -252,11 +267,14 @@ class OpenStackProvider(providers.BaseProvider):
             for ept in epts[e_type]:
                 # XXX for one ID there is one enpoint URL per project
                 e_id = ept['id']
-                e_url = ept['url']
+                if e_type == 'occi':
+                    e_url = ept['url']
+                else:
+                    e_url = self.auth_plugin.auth_url
                 # Use keystone SSL information
                 e_issuer = self.keystone_cert_issuer
                 e_cas = self.keystone_trusted_cas
-                e_versions = self._get_endpoint_versions(e_url, e_type)
+                e_versions = self._get_endpoint_versions(ept['url'], e_type)
                 e_mw_version = e_versions['compute_middleware_version']
                 e_api_version = e_versions['compute_api_version']
                 # Fallback on defaults if nothing was found
@@ -285,7 +303,7 @@ class OpenStackProvider(providers.BaseProvider):
         return ret
 
     @_rescope
-    def get_templates(self, os_project_name=None, **kwargs):
+    def get_templates(self, **kwargs):
         """Return templates/flavors selected accroding to --select-flavors"""
         flavors = {}
         defaults = {'template_platform': 'amd64',
@@ -314,7 +332,7 @@ class OpenStackProvider(providers.BaseProvider):
         return flavors
 
     @_rescope
-    def get_images(self, os_project_name=None, **kwargs):
+    def get_images(self, **kwargs):
         images = {}
 
         # image_native_id: middleware image ID
@@ -398,7 +416,7 @@ class OpenStackProvider(providers.BaseProvider):
         return images
 
     @_rescope
-    def get_instances(self, os_project_name=None, **kwargs):
+    def get_instances(self, **kwargs):
         instance_template = {
             'instance_name': None,
             'instance_image_id': None,
@@ -421,7 +439,7 @@ class OpenStackProvider(providers.BaseProvider):
         return instances
 
     @_rescope
-    def get_compute_quotas(self, os_project_name=None, **kwargs):
+    def get_compute_quotas(self, **kwargs):
         '''Return the quotas set for the current project.'''
 
         quota_resources = ['instances', 'cores', 'ram',
@@ -435,7 +453,7 @@ class OpenStackProvider(providers.BaseProvider):
         quotas = defaults.copy()
 
         try:
-            project_quotas = self.nova.quotas.get(self.os_tenant_id)
+            project_quotas = self.nova.quotas.get(self.os_project_id)
             for resource in quota_resources:
                 try:
                     quotas[resource] = getattr(project_quotas, resource)
