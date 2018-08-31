@@ -271,6 +271,9 @@ class OpenStackProvider(providers.BaseProvider):
                 e_id = ept['id']
                 # URL is in different places depending of Keystone version
                 e_url = ept.get('url', ept.get('publicURL'))
+                # the URL used as id is different if OCCI or nova
+                e_id_url = (e_url if e_type == 'occi'
+                            else self.auth_plugin.auth_url)
                 # Use keystone SSL information
                 e_issuer = self.keystone_cert_issuer
                 e_cas = self.keystone_trusted_cas
@@ -290,7 +293,7 @@ class OpenStackProvider(providers.BaseProvider):
                 e = defaults.copy()
                 e.update(e_data)
                 e.update({
-                    'compute_endpoint_url': e_url,
+                    'compute_endpoint_url': e_id_url,
                     'compute_endpoint_id': e_id,
                     'endpoint_issuer': e_issuer,
                     'endpoint_trusted_cas': e_cas,
@@ -298,9 +301,7 @@ class OpenStackProvider(providers.BaseProvider):
                     'compute_api_type': e_data['compute_api_type'],
                     'compute_api_version': e_api_version,
                 })
-                e_key = (self.auth_plugin.auth_url if e_type == 'occi'
-                         else e_url)
-                ret['endpoints'][e_key] = e
+                ret['endpoints'][e_id_url] = e
         return ret
 
     @_rescope
