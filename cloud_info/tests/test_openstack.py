@@ -53,7 +53,7 @@ class OpenStackProviderTest(base.TestCase):
                 self.session = mock.Mock()
                 self.session.get_project_id.return_value = 'TEST_PROJECT_ID'
                 self.auth_plugin = mock.MagicMock()
-                self.auth_plugin.auth_url = 'http://foo.example.org:1234/v2'
+                self.auth_plugin.auth_url = 'http://foo.example.org:5000/v2'
                 self.static = mock.Mock()
                 self.legacy_occi_os = False
                 self.keystone_cert_issuer = "foo"
@@ -644,17 +644,17 @@ class OpenStackProviderTest(base.TestCase):
                     'compute_api_version': '11.11',
                     'compute_endpoint_id': '03e087c8fb3b495c9a360bcba3abf914',
                     'compute_endpoint_url': 'https://cloud.example.org:8787/'},
-                'http://foo.example.org:1234/v2': {
+                'http://foo.example.org:5000/v2': {
                     'compute_api_type': 'OpenStack',
                     # As version is extracted from the URL default is not used
-                    'compute_api_version': 'v1.1',
+                    'compute_api_version': 'v2',
                     'compute_endpoint_id': '1b7f14c87d8c42ad962f4d3a5fd13a77',
                     'compute_endpoint_url':
-                        'http://foo.example.org:1234/v2'}
+                        'http://foo.example.org:5000/v2'}
             },
             'compute_middleware_developer': 'OpenStack',
             'compute_middleware': 'OpenStack Nova',
-            'compute_service_name': 'http://foo.example.org:1234/v2',
+            'compute_service_name': 'http://foo.example.org:5000/v2',
         }
 
         with mock.patch.object(
@@ -686,9 +686,9 @@ class OpenStackProviderTest(base.TestCase):
                     'endpoint_trusted_cas': [],
                     'compute_endpoint_id': '03e087c8fb3b495c9a360bcba3abf914',
                     'compute_endpoint_url': 'https://cloud.example.org:8787/'},
-                'http://foo.example.org:1234/v2': {
+                'http://foo.example.org:5000/v2': {
                     'compute_api_type': 'OpenStack',
-                    'compute_api_version': 'v1.1',
+                    'compute_api_version': 'v2',
                     'compute_middleware': 'OpenStack Nova',
                     'compute_middleware_version': 'UNKNOWN',
                     'compute_middleware_developer': 'OpenStack Foundation',
@@ -696,9 +696,9 @@ class OpenStackProviderTest(base.TestCase):
                     'endpoint_trusted_cas': [],
                     'compute_endpoint_id': '1b7f14c87d8c42ad962f4d3a5fd13a77',
                     'compute_endpoint_url':
-                        'http://foo.example.org:1234/v2'}
+                        'http://foo.example.org:5000/v2'}
             },
-            'compute_service_name': 'http://foo.example.org:1234/v2',
+            'compute_service_name': 'http://foo.example.org:5000/v2',
         }
 
         with mock.patch.object(
