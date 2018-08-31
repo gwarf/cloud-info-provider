@@ -120,6 +120,8 @@ class OpenStackProvider(providers.BaseProvider):
         if (not self.os_project_id or
                 os_project_id != self.os_project_id):
             self.opts.os_project_id = os_project_id
+            # make sure that it also works for v2voms
+            self.opts.os_tenant_id = os_project_id
             self.auth_plugin = loading.load_auth_from_argparse_arguments(
                 self.opts
             )
@@ -266,16 +268,13 @@ class OpenStackProvider(providers.BaseProvider):
             epts = catalog.get_endpoints(service_type=e_type,
                                          interface="public")
             for ept in epts[e_type]:
-                # XXX for one ID there is one enpoint URL per project
                 e_id = ept['id']
-                if e_type == 'occi':
-                    e_url = ept['url']
-                else:
-                    e_url = self.auth_plugin.auth_url
+                # URL is in different places depending of Keystone version
+                e_url = ept.get('url', ept.get('publicURL'))
                 # Use keystone SSL information
                 e_issuer = self.keystone_cert_issuer
                 e_cas = self.keystone_trusted_cas
-                e_versions = self._get_endpoint_versions(ept['url'], e_type)
+                e_versions = self._get_endpoint_versions(e_url, e_type)
                 e_mw_version = e_versions['compute_middleware_version']
                 e_api_version = e_versions['compute_api_version']
                 # Fallback on defaults if nothing was found
@@ -299,8 +298,9 @@ class OpenStackProvider(providers.BaseProvider):
                     'compute_api_type': e_data['compute_api_type'],
                     'compute_api_version': e_api_version,
                 })
-
-                ret['endpoints'][e_url] = e
+                e_key = (self.auth_plugin.auth_url if e_type == 'occi'
+                                                   else e_url)
+                ret['endpoints'][e_key] = e
         return ret
 
     @_rescope
@@ -494,7 +494,8 @@ class OpenStackProvider(providers.BaseProvider):
         parser.add_argument('--os-auth-type',
                             '--os-auth-plugin',
                             metavar='<name>',
-                            default=utils.env('OS_AUTH_TYPE', default=default_auth),
+                            default=utils.env('OS_AUTH_TYPE',
+                                              default=default_auth),
                             choices=plugins,
                             help='Authentication type to use, available '
                                  'types are: %s' % ", ".join(plugins))
@@ -504,12 +505,12 @@ class OpenStackProvider(providers.BaseProvider):
         for plugin_name in plugins:
             plugin = loading_base.get_plugin_loader(plugin_name)
             for opt in plugin.get_options():
-                # NOTE(aloga): we do not want a project to be passed from the CLI,
-                # as we will iterate over it for each configured VO and project.
-                # However, as the plugin is expecting them when parsing the
-                # arguments we need to set them to None before calling the
-                # load_auth_from_argparse_arguments method in the __init__ method
-                # of this class.
+                # NOTE(aloga): we do not want a project to be passed from the
+                # CLI, as we will iterate over it for each configured VO and
+                # project. However, as the plugin is expecting them when
+                # parsing the arguments we need to set them to None before
+                # calling the load_auth_from_argparse_arguments method in the
+                # __init__ method of this class.
                 if opt.name in ("project-name", "project-id"):
                     continue
 
