@@ -144,7 +144,10 @@ class OpenStackProvider(providers.BaseProvider):
             self.glance = glanceclient.Client('2', session=self.session)
 
     def _get_endpoint_versions(self, endpoint_url, endpoint_type):
-        '''Return the API and middleware versions of a compute endpoint.'''
+        '''Return the API and middleware versions of a compute endpoint.
+           Beware for 'compute' type endpoint, we are using Keystone URL and
+           not nova's!
+        '''
         e_middleware_version = None
         e_version = None
 
@@ -281,7 +284,7 @@ class OpenStackProvider(providers.BaseProvider):
                 # Use keystone SSL information
                 e_issuer = self.keystone_cert_issuer
                 e_cas = self.keystone_trusted_cas
-                e_versions = self._get_endpoint_versions(e_url, e_type)
+                e_versions = self._get_endpoint_versions(e_id_url, e_type)
                 e_mw_version = e_versions['compute_middleware_version']
                 e_api_version = e_versions['compute_api_version']
                 # Fallback on defaults if nothing was found
