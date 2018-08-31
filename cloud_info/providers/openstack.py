@@ -299,7 +299,7 @@ class OpenStackProvider(providers.BaseProvider):
                     'compute_api_version': e_api_version,
                 })
                 e_key = (self.auth_plugin.auth_url if e_type == 'occi'
-                                                   else e_url)
+                         else e_url)
                 ret['endpoints'][e_key] = e
         return ret
 

@@ -62,7 +62,7 @@ class BaseBDII(object):
         tpl = mako.template.Template(filename=t)
         try:
             return tpl.render(attributes=info)
-        except:
+        except Exception:
             return mako.exceptions.text_error_template().render()
 
 
