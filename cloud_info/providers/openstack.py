@@ -117,6 +117,10 @@ class OpenStackProvider(providers.BaseProvider):
         self.select_flavors = opts.select_flavors
 
     def _rescope_project(self, os_project_id):
+        '''Switch to new OS project whenever there is a change.
+
+           It updates every OpenStack client used in case of new project.
+        '''
         if (not self.os_project_id or
                 os_project_id != self.os_project_id):
             self.opts.os_project_id = os_project_id
