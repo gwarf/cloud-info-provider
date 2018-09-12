@@ -1,7 +1,7 @@
 <%
     static_compute_info = attributes['static_compute_info']
-    endpoints = attributes['endpoints']
     shares = attributes['shares']
+    all_endpoints = {url: endpoint for vo, share in shares.items() for url, endpoint in share['endpoints']['endpoints'].items()}
     # Collect template and images from all shares using nest dict comprehension
     # http://stackoverflow.com/questions/20446526/nested-dictionary-comprehension-in-python
     templates = {template_id: template for vo, share in shares.items() for template_id, template in share['templates'].items()}
@@ -30,7 +30,7 @@ GLUE2ManagerProductVersion: ${static_compute_info['compute_hypervisor_version']}
 GLUE2ComputingManagerTotalLogicalCPUs: ${static_compute_info['compute_total_cores']}
 GLUE2ComputingManagerWorkingAreaTotal: ${static_compute_info['compute_total_ram']}
 
-% for url, endpoint in endpoints['endpoints'].items():
+% for url, endpoint in all_endpoints.items():
 dn: GLUE2EndpointID=${endpoint['compute_endpoint_url']}_${endpoint['compute_api_type']}_${endpoint['compute_api_version']}_${endpoint['compute_api_authn_method']},GLUE2ServiceID=${endpoint['compute_service_name']}_cloud.compute,GLUE2GroupID=cloud,${endpoint['suffix']}
 objectClass: GLUE2Entity
 objectClass: GLUE2Endpoint
