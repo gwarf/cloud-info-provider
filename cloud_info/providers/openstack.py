@@ -309,6 +309,13 @@ class OpenStackProvider(providers.BaseProvider):
                     'compute_api_type': e_data['compute_api_type'],
                     'compute_api_version': e_api_version,
                 })
+                if e_type == 'compute':
+                    nova_versions = self._get_endpoint_versions(e_url, e_type)
+                    nova_api_version = nova_versions['compute_api_version']
+                    e.update({
+                        'compute_nova_endpoint_url': e_url,
+                        'compute_nova_api_version': nova_api_version,
+                    })
                 ret['endpoints'][e_id_url] = e
         return ret
 
