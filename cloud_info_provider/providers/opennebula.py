@@ -114,6 +114,12 @@ class OpenNebulaBaseProvider(providers.BaseProvider):
             templates[tpl_id] = aux_tpl
         return templates
 
+    def get_instances(self, **kwargs):
+        return self.static.get_instances(**kwargs)
+
+    def get_compute_quotas(self, **kwargs):
+        return self.static.get_compute_quotas(**kwargs)
+
     @staticmethod
     def populate_parser(parser):
         parser.add_argument(
