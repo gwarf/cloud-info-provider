@@ -281,9 +281,9 @@ class OpenNebulaROCCIProvider(OpenNebulaBaseProvider):
 
     def _get_endpoint_ca_information(self, url, **kwargs):
         if url not in self.ca_info:
-            self.ca_info = super(OpenNebulaROCCIProvider,
-                                 self)._get_endpoint_ca_information(
-                                     self, url, **kwargs)
+            ca_info = super(OpenNebulaROCCIProvider,
+                            self)._get_endpoint_ca_information(url, **kwargs)
+            self.ca_info[url] = ca_info
         return self.ca_info[url]
 
     def get_compute_endpoints(self, **kwargs):
