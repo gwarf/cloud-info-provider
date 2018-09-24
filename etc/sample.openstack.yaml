@@ -70,21 +70,21 @@ compute:
 
     shares:
         ops:
-            project: ops
+            os_project_id: xxxxx
             sla: UNKNOWN
             # Type of network: infiniband, gigabiteethernet...
             network_info: UNKNOWN
             membership:
                 - VO:ops
         fedcloud.egi.eu:
-            project: fedcloud
+            os_project_id: fedcloud_xxxx
             sla: https://egi.eu/sla/fedcloud
             # Type of network: infiniband, gigabiteethernet...
             network_info: UNKNOWN
             membership:
                 - VOMS:/fedcloud.egi.eu/Role=VMOperators
         training.egi.eu:
-            project: training
+            os_project_id: xxxxx_training
             sla: https://egi.eu/sla/training
             # Type of network: infiniband, gigabiteethernet...
             network_info: UNKNOWN
