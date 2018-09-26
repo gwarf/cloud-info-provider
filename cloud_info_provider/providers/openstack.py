@@ -4,6 +4,7 @@ import re
 
 from cloud_info_provider import exceptions
 from cloud_info_provider import providers
+from cloud_info_provider.providers import ssl_utils
 from cloud_info_provider import utils
 
 from six.moves.urllib.parse import urljoin
@@ -100,9 +101,9 @@ class OpenStackProvider(providers.BaseProvider):
         self.insecure = opts.insecure
 
         # Retieve information about Keystone endpoint SSL configuration
-        e_cert_info = self._get_endpoint_ca_information(opts.os_auth_url,
-                                                        opts.insecure,
-                                                        opts.os_cacert)
+        e_cert_info = ssl_utils.get_endpoint_ca_information(opts.os_auth_url,
+                                                            opts.insecure,
+                                                            opts.os_cacert)
         self.keystone_cert_issuer = e_cert_info['issuer']
         self.keystone_trusted_cas = e_cert_info['trusted_cas']
         self.os_cacert = opts.os_cacert

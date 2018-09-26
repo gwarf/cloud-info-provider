@@ -4,6 +4,7 @@ import string
 
 from cloud_info_provider import exceptions
 from cloud_info_provider import providers
+from cloud_info_provider.providers import ssl_utils
 from cloud_info_provider import utils
 
 try:
@@ -74,7 +75,7 @@ class OpenNebulaBaseProvider(providers.BaseProvider):
             self.on_auth, -3, -1, -1, document_type)
         return self._handle_response(response)
 
-    def get_images(self, share_id=None, **kwargs):
+    def get_images(self, **kwargs):
         template = {
             'image_name': None,
             'image_description': None,
@@ -88,6 +89,7 @@ class OpenNebulaBaseProvider(providers.BaseProvider):
         }
         defaults = self.static.get_image_defaults(prefix=True)
         img_schema = defaults.get('image_schema', 'template')
+        share_id = kwargs.get('share_id', None)
 
         templates = {}
         # TODO(enolfc): cache the templates instead of always calling this?
@@ -281,8 +283,7 @@ class OpenNebulaROCCIProvider(OpenNebulaBaseProvider):
 
     def _get_endpoint_ca_information(self, url, **kwargs):
         if url not in self.ca_info:
-            ca_info = super(OpenNebulaROCCIProvider,
-                            self)._get_endpoint_ca_information(url, **kwargs)
+            ca_info = ssl_utils.get_endpoint_ca_information(url, **kwargs)
             self.ca_info[url] = ca_info
         return self.ca_info[url]
 
@@ -299,7 +300,7 @@ class OpenNebulaROCCIProvider(OpenNebulaBaseProvider):
             epts[url] = ept
         return {'endpoints': epts}
 
-    def get_templates(self, share_id=None, **kwargs):
+    def get_templates(self, **kwargs):
         """Get flavors from rOCCI-server configuration."""
         template = {
             'template_id': None,
@@ -313,6 +314,7 @@ class OpenNebulaROCCIProvider(OpenNebulaBaseProvider):
         template.update(self.static.get_template_defaults(prefix=True))
 
         if self.rocci_remote_templates:
+            share_id = kwargs.get('share_id', None)
             templates = self.remote_templates(template, share_id)
         else:
             templates = self.local_templates(template)
