@@ -89,13 +89,12 @@ class OpenNebulaBaseProvider(providers.BaseProvider):
         }
         defaults = self.static.get_image_defaults(prefix=True)
         img_schema = defaults.get('image_schema', 'template')
-        share_id = kwargs.get('share_id', None)
+        group_name = kwargs.get('project', None)
 
         templates = {}
         # TODO(enolfc): cache the templates instead of always calling this?
         for tpl_id, tpl in self._get_one_templates().items():
-            # rOCCI convention: group name == VO name
-            if share_id and share_id != tpl.get('gname'):
+            if group_name and group_name != tpl.get('gname'):
                 continue
             aux_tpl = template.copy()
             aux_tpl.update(defaults)
@@ -119,12 +118,6 @@ class OpenNebulaBaseProvider(providers.BaseProvider):
 
             templates[tpl_id] = aux_tpl
         return templates
-
-    def get_instances(self, **kwargs):
-        return self.static.get_instances(**kwargs)
-
-    def get_compute_quotas(self, **kwargs):
-        return self.static.get_compute_quotas(**kwargs)
 
     @staticmethod
     def populate_parser(parser):
@@ -314,8 +307,8 @@ class OpenNebulaROCCIProvider(OpenNebulaBaseProvider):
         template.update(self.static.get_template_defaults(prefix=True))
 
         if self.rocci_remote_templates:
-            share_id = kwargs.get('share_id', None)
-            templates = self.remote_templates(template, share_id)
+            group_name = kwargs.get('project', None)
+            templates = self.remote_templates(template, group_name)
         else:
             templates = self.local_templates(template)
 
@@ -351,14 +344,14 @@ class OpenNebulaROCCIProvider(OpenNebulaBaseProvider):
 
         return templates
 
-    def remote_templates(self, template, share_id):
+    def remote_templates(self, template, group_name):
         document_type = 999  # TODO(bparak): configurable?
 
         templates = {}
         # TODO(enolfc): cache info from ONE?
         for doc_id, doc in self._get_one_documents(document_type).items():
             document = json.loads(doc['template']['body'])
-            if share_id and share_id != doc.get('gname'):
+            if group_name and group_name != doc.get('gname'):
                 continue
 
             aux = template.copy()

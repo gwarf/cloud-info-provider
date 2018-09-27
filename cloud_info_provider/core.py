@@ -110,7 +110,7 @@ class ComputeBDII(BaseBDII):
         # Get shares / projects and related images and templates
         shares = self._get_info_from_providers('get_compute_shares')
 
-        for share in shares.items():
+        for share in shares.values():
             kwargs = share.copy()
 
             endpoints = self._get_info_from_providers('get_compute_endpoints',
